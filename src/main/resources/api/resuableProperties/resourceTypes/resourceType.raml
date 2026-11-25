@@ -1,5 +1,10 @@
 #%RAML 1.0 ResourceType
 get:
+        queryParameters:
+          customer_id:
+            type: string
+            example: "Abcd123"
+      
         description: To retrieve the loan details of a customer
       
         responses:
@@ -15,6 +20,10 @@ get:
                     "interest": 8
                   }
 put:
+        queryParameters:
+          customer_id:
+            type: string
+            example: "Abcd123"
         description: To update the entire/complete loan information
         body:
           application/json:
@@ -36,6 +45,10 @@ put:
                     "message": "Loan info updated successfully"
                   }
 patch:
+        queryParameters:
+          customer_id:
+            type: string
+            example: "Abcd123"
         description: To update a specific record of a Loan
         body:
           application/json:
@@ -53,6 +66,10 @@ patch:
                     "message": "Loan info updated successfully"
                   }
 delete:
+        queryParameters:
+          customer_id:
+            type: string
+            example: "Abcd123"
         description: To close/remove the loan account
 
         responses:

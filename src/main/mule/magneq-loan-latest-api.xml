@@ -2,7 +2,7 @@
 <mule xmlns:os="http://www.mulesoft.org/schema/mule/os" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd 
 http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd">
     <http:listener-config name="magneq-loan-latest-api-httpListenerConfig">
-        <http:listener-connection host="localhost" port="8081" />
+        <http:listener-connection host="localhost" port="8081"/>
     </http:listener-config>
     <apikit:config name="magneq-loan-latest-api-config" api="magneq-loan-latest-api.raml" outboundHeadersMapName="outboundHeaders" httpStatusVarName="httpStatus" />
     <http:request-config name="HTTP_Request_configuration" doc:name="HTTP Request configuration" doc:id="a89485b6-2a1c-4f57-92ba-d3fffcf79c51" >
@@ -11,7 +11,14 @@ http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/cu
 	<http:request-config name="HTTP_Request_configuration1" doc:name="HTTP Request configuration" doc:id="9ecafa22-03c8-4279-85c8-5485ac189cbf" >
 		<http:request-connection host="localhost" port="8082" />
 	</http:request-config>
-	<os:object-store name="loans_Object_store" doc:name="Object store" doc:id="55cce56a-8a42-480b-871f-dcf3240e5b68" entryTtl="60" expirationInterval="30" />
+	<os:object-store name="loans_Object_store" doc:name="Object store" doc:id="55cce56a-8a42-480b-871f-dcf3240e5b68" entryTtl="60" expirationInterval="30" config-ref="ObjectStore_Config"/>
+	<os:config name="ObjectStore_Config" doc:name="ObjectStore Config" doc:id="e1381c5d-fe74-45a1-8f2f-8bc7ff64bb7f" >
+		<os:connection >
+			<reconnection >
+				<reconnect />
+			</reconnection>
+		</os:connection>
+	</os:config>
 	<flow name="magneq-loan-latest-api-main">
         <http:listener config-ref="magneq-loan-latest-api-httpListenerConfig" path="/api/*">
             <http:response statusCode="#[vars.httpStatus default 200]">
@@ -117,124 +124,174 @@ output application/json
         <apikit:console config-ref="magneq-loan-latest-api-config" />
         <error-handler>
             <on-error-propagate type="APIKIT:NOT_FOUND">
-                <ee:transform doc:name="Transform Message">
-                    <ee:message>
-                        <ee:set-payload><![CDATA[%dw 2.0
-output application/json
----
-{message: "Resource not found"}]]></ee:set-payload>
-                    </ee:message>
-                    <ee:variables>
-                        <ee:set-variable variableName="httpStatus">404</ee:set-variable>
-                    </ee:variables>
-                </ee:transform>
             </on-error-propagate>
         </error-handler>
     </flow>
     <flow name="put:\loans\(loan_type)\(loan_id):application\json:magneq-loan-latest-api-config">
-        <ee:transform doc:name="Transform Message">
-            <ee:variables>
-                <ee:set-variable variableName="loan_type">attributes.uriParams.'loan_type'</ee:set-variable>
-                <ee:set-variable variableName="loan_id">attributes.uriParams.'loan_id'</ee:set-variable>
+        <ee:transform doc:name="Transform Message" doc:id="fb362c4f-ef25-4afc-af88-dfd1cc49ca48">
+            <ee:message >
+			</ee:message>
+			<ee:variables>
+                <ee:set-variable variableName="loan_type"><![CDATA[attributes.uriParams.'loan_type']]></ee:set-variable>
+                <ee:set-variable variableName="loan_id"><![CDATA[attributes.uriParams.'loan_id']]></ee:set-variable>
+				<ee:set-variable variableName="loansPutData" ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-variable>
+				<ee:set-variable variableName="customer_id" ><![CDATA[attributes.queryParams.customer_id]]></ee:set-variable>
             </ee:variables>
         </ee:transform>
-        <ee:transform doc:name="Transform Message">
-            <ee:message>
-                <ee:set-payload><![CDATA[%dw 2.0
+		<os:retrieve doc:name="Retrieve" doc:id="86992067-62eb-4eae-80ad-050f6801fe3d" key="#[vars.customer_id]" objectStore="loans_Object_store" target="retrieve"/>
+		<ee:transform doc:name="Transform Message" doc:id="a875a8a8-dd09-4a81-bb1b-7adde79bfa34" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="update" ><![CDATA[%dw 2.0
+output application/json
+---
+vars.retrieve map ((item, index) ->
+    if (item.loan_id == vars.loan_id)
+        vars.loansPutData ++ {loan_id: vars.loan_id}
+    else
+        item
+)]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<os:store doc:name="Store" doc:id="0f366fa7-2861-4e6a-8eab-82e45ce0a49e" key="#[vars.customer_id]" objectStore="loans_Object_store">
+			<os:value ><![CDATA[#[vars.update]]]></os:value>
+		</os:store>
+		<ee:transform doc:name="Transform Message" doc:id="c7e0f772-cee9-478e-8e3d-e3e8a8d230eb" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
 output application/json
 ---
 {
-  loan_id: "GOLD_1234",
-  message: "Loan info updated successfully"
-} as Object {encoding: "UTF-8", mediaType: "application/json"}]]></ee:set-payload>
-            </ee:message>
-        </ee:transform>
+	customer_id: vars.customer_id,
+	message: "Your Loan is Updated Successfully"
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
     </flow>
     <flow name="delete:\loans\(loan_type)\(loan_id):magneq-loan-latest-api-config">
         <ee:transform doc:name="Transform Message">
             <ee:variables>
-                <ee:set-variable variableName="loan_type">attributes.uriParams.'loan_type'</ee:set-variable>
-                <ee:set-variable variableName="loan_id">attributes.uriParams.'loan_id'</ee:set-variable>
+                <ee:set-variable variableName="loan_type"><![CDATA[attributes.uriParams.'loan_type']]></ee:set-variable>
+                <ee:set-variable variableName="loan_id"><![CDATA[attributes.uriParams.'loan_id']]></ee:set-variable>
+				<ee:set-variable variableName="customer_id" ><![CDATA[attributes.queryParams.customer_id]]></ee:set-variable>
             </ee:variables>
         </ee:transform>
-        <ee:transform doc:name="Transform Message">
+		<os:retrieve doc:name="Retrieve" doc:id="f398d654-bb7f-4cfd-8a58-87435b684348" key="#[vars.customer_id]" objectStore="loans_Object_store" target="retrieve"/>
+		<!-- [STUDIO:"Transform Message"]<ee:transform doc:name="Transform Message">
             <ee:message>
                 <ee:set-payload><![CDATA[%dw 2.0
 output application/json
----
+&#45;&#45;-
 {
   loan_id: "GOLD_1234",
   message: "Loan account closed successfully"
-} as Object {encoding: "UTF-8", mediaType: "application/json"}]]></ee:set-payload>
+} as Object {encoding: "UTF-8", mediaType: "application/json"}&#93;&#93;></ee:set-payload>
             </ee:message>
-        </ee:transform>
+        </ee:transform> [STUDIO] -->
     </flow>
     <flow name="patch:\loans\(loan_type)\(loan_id):application\json:magneq-loan-latest-api-config">
-        <ee:transform doc:name="Transform Message">
-            <ee:variables>
-                <ee:set-variable variableName="loan_type">attributes.uriParams.'loan_type'</ee:set-variable>
-                <ee:set-variable variableName="loan_id">attributes.uriParams.'loan_id'</ee:set-variable>
+        <ee:transform doc:name="Transform Message" doc:id="474c19cf-f2e1-4936-9181-83c917ba3967">
+            <ee:message >
+			</ee:message>
+			<ee:variables>
+                <ee:set-variable variableName="loan_type"><![CDATA[attributes.uriParams.'loan_type']]></ee:set-variable>
+                <ee:set-variable variableName="loan_id"><![CDATA[attributes.queryParams.'loan_id']]></ee:set-variable>
+				<ee:set-variable variableName="customer_id" ><![CDATA[attributes.queryParams.customer_id]]></ee:set-variable>
+				<ee:set-variable variableName="loansPatchData" ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-variable>
             </ee:variables>
         </ee:transform>
-        <ee:transform doc:name="Transform Message">
-            <ee:message>
-                <ee:set-payload><![CDATA[%dw 2.0
+		<os:retrieve doc:name="Retrieve" doc:id="4161cb17-aeb0-465f-acbd-4abd863749ab" key="#[vars.customer_id]" target="retrieve" objectStore="loans_Object_store"/>
+		<ee:transform doc:name="Transform Message" doc:id="156c5568-b5a5-4a2d-81fb-ab8055e9e5d5" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="update" ><![CDATA[%dw 2.0
+output application/json
+---
+vars.retrieve map ((item,index) -> 
+	if (item.loan_id == vars.loan_id)
+		item ++ vars.loansPatchData
+	else 
+		item
+)]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<os:store doc:name="Store" doc:id="f3c89f8b-3e5d-46a8-9b7a-08cd76440287" key="#[vars.customer_id]" objectStore="loans_Object_store">
+			<os:value ><![CDATA[#[vars.update]]]></os:value>
+		</os:store>
+		<ee:transform doc:name="Transform Message1" doc:id="e9c66bd0-5eda-42f6-9acc-b181295988b1" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
 output application/json
 ---
 {
-  loan_id: "GOLD_1234",
-  message: "Loan info updated successfully"
-} as Object {encoding: "UTF-8", mediaType: "application/json"}]]></ee:set-payload>
-            </ee:message>
-        </ee:transform>
+	customer_id: vars.customer_id,
+	message: "Your Loan is Updated Successfully"
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
     </flow>
     <flow name="get:\loans\(loan_type)\(loan_id):magneq-loan-latest-api-config">
-        <ee:transform doc:name="Transform Message">
-            <ee:variables>
-                <ee:set-variable variableName="loan_type">attributes.uriParams.'loan_type'</ee:set-variable>
-                <ee:set-variable variableName="loan_id">attributes.uriParams.'loan_id'</ee:set-variable>
+		<ee:transform doc:name="Transform Message" doc:id="f7b996cb-e8f8-48ee-af61-44a76777ded4">
+            <ee:message />
+			<ee:variables>
+                <ee:set-variable variableName="loan_type"><![CDATA[attributes.uriParams.'loan_type']]></ee:set-variable>
+                <ee:set-variable variableName="loan_id"><![CDATA[attributes.uriParams.loan_id]]></ee:set-variable>
+				<ee:set-variable variableName="customer_id" ><![CDATA[attributes.queryParams.customer_id]]></ee:set-variable>
             </ee:variables>
         </ee:transform>
-        <ee:transform doc:name="Transform Message">
-            <ee:message>
-                <ee:set-payload><![CDATA[%dw 2.0
+		<!-- [STUDIO:"Retrieve all"]<os:retrieve-all doc:name="Retrieve all" doc:id="00169549-0881-4043-813b-6c171a984852" objectStore="loans_Object_store" target="retrieveAll"/> [STUDIO] -->
+		<!-- [STUDIO:"Transform Message"]<ee:transform doc:name="Transform Message" doc:id="c21c74e8-0a79-42dd-af0a-b1186e006f84" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+
+var retrieveData = vars.retrieveAll
+
+var allLoans = flatten(
+    retrieveData pluck ((value, key) ->
+        read(value, "application/json")
+    )
+)
+&#45;&#45;-
+allLoans filter ($.loan_id == vars.loan_id)&#93;&#93;></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+			</ee:variables>
+		</ee:transform> [STUDIO] -->
+		<os:retrieve doc:name="Retrieve" doc:id="06e57093-8104-42ff-b29d-993425e3279a" key="#[vars.customer_id]" target="retrieveData" objectStore="loans_Object_store">
+		</os:retrieve>
+		<ee:transform doc:name="Transform Message" doc:id="44ea77a9-b9d4-474c-b743-4f4c1da6d79b" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
 output application/json
 ---
-{
-  customer_id: "1234",
-  loan_id: "PERSONAL_1234",
-  loan_amount: 20000,
-  tenure: 60,
-  interest: 8
-} as Object {encoding: "UTF-8", mediaType: "application/json"}]]></ee:set-payload>
-            </ee:message>
-        </ee:transform>
+vars.retrieveData filter($.loan_id == vars.loan_id)]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
     </flow>
     <flow name="get:\loans\(loan_type):magneq-loan-latest-api-config">
         <ee:transform doc:name="Transform Message">
             <ee:variables>
-                <ee:set-variable variableName="loan_type">attributes.uriParams.'loan_type'</ee:set-variable>
+                <ee:set-variable variableName="loan_type"><![CDATA[attributes.uriParams.'loan_type']]></ee:set-variable>
+				<ee:set-variable variableName="customer_id" ><![CDATA[attributes.queryParams.customer_id]]></ee:set-variable>
             </ee:variables>
         </ee:transform>
-        <ee:transform doc:name="Transform Message">
+        <os:retrieve doc:name="Retrieve" doc:id="370d2562-4418-427b-abc9-0ca1d5df28d6" key="#[vars.customer_id]" target="getData" objectStore="loans_Object_store">
+		</os:retrieve>
+		<ee:transform doc:name="Transform Message">
             <ee:message>
                 <ee:set-payload><![CDATA[%dw 2.0
 output application/json
 ---
-[
-  {
-    loan_id: "PERSONAL_1234",
-    loan_amount: 20000,
-    tenure: 60,
-    interest: 8
-  }, 
-  {
-    loan_id: "PERSONAL_5678",
-    loan_amount: 30000,
-    tenure: 40,
-    interest: 7
-  }
-] as Array {encoding: "UTF-8", mediaType: "application/json"}]]></ee:set-payload>
+vars.getData filter($.loan_type == vars.loan_type)]]></ee:set-payload>
             </ee:message>
         </ee:transform>
     </flow>
@@ -254,7 +311,7 @@ payload]]></ee:set-variable>
 			</ee:variables>
 		</ee:transform>
 		<http:request method="GET" doc:name="Request" doc:id="d2c0af7a-9371-4515-afb0-1fa718419236" config-ref="HTTP_Request_configuration" path="/authentication-api" target="tokenInformation"/>
-		<set-variable value="#[vars.tokenInformation.token]" doc:name="Set Variable" doc:id="9b86eaac-8dba-4bcd-a996-64a77290987e" variableName="tokenId"/>
+		<set-variable value="#[vars.tokenInformation.token]" doc:name="Set Variable" doc:id="9b86eaac-8dba-4bcd-a996-64a77290987e" variableName="tokenId" />
 		<http:request method="POST" doc:name="Request" doc:id="ee82ee9a-28bf-46a9-9e2c-7caa86656059" config-ref="HTTP_Request_configuration1" path="/api/credit-score/validate" target="creditScoreData">
 			<http:body ><![CDATA[#[%dw 2.0
 output application/json
@@ -287,7 +344,7 @@ output application/json
 ---
 [
 	vars.loansPostData ++ {
-		loan_id: vars.loansPostData.loan_type ++ "_" ++ uudid()
+		loan_id: vars.loansPostData.loan_type ++ "_" ++ uuid()
 	}
 ]]]></ee:set-variable>
 					</ee:variables>
@@ -336,10 +393,10 @@ output application/json
 vars.existing_cLoans ++ vars.loanData]]></ee:set-payload>
 					</ee:message>
 				</ee:transform>
-				<os:store doc:name="Store" doc:id="08c58e6a-7d39-4ab5-8c32-4262860ac89d" key="#[vars.loansPostData.customer_id]"/>
+				<os:store doc:name="Store" doc:id="08c58e6a-7d39-4ab5-8c32-4262860ac89d" key="#[vars.loansPostData.customer_id]" objectStore="loans_Object_store"/>
 			</when>
 			<otherwise >
-				<os:store doc:name="Store" doc:id="67cb10fa-48a8-4c9f-b244-d722f994588f" key="#[vars.loansPostData.customer_id]">
+				<os:store doc:name="Store" doc:id="67cb10fa-48a8-4c9f-b244-d722f994588f" key="#[vars.loansPostData.customer_id]" objectStore="loans_Object_store">
 					<os:value ><![CDATA[#[vars.loanData]]]></os:value>
 				</os:store>
 			</otherwise>
